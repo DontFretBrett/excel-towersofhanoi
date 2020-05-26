@@ -1,0 +1,344 @@
+'-----------------------------------------------------------------------------------------
+'Developer: Brett Sanders
+'Date: September 2012
+'https://twitter.com/WontFretBrett
+'-----------------------------------------------------------------------------------------
+Dim SelectedBlock As Integer
+Dim SelectedSection As Integer
+Dim Moves As Integer
+Dim Finished As Boolean
+Dim StartedTimer As Boolean
+Dim WhenStarted As Long
+Private pDiscCount As Integer
+Const MaxDiscCount As Integer = 10
+Dim LastRedBlock As Range
+Function DiscCount() As Integer
+    If pDiscCount = 0 Then
+        Dim L As String: L = lblDiscs.Caption
+        If InStr(L, ": ") > 0 Then
+            L = Split(L, ": ")(1)
+            If Val(L) > 1 And Val(L) <= 10 Then
+                DiscCount = Val(L)
+                pDiscCount = Val(L)
+                Exit Function
+            End If
+        End If
+        DiscCount = 4
+    Else
+        If pDiscCount < 0 Then
+            DiscCount = 2
+        Else
+            If pDiscCount > MaxDiscCount Then
+                DiscCount = MaxDiscCount
+            Else
+                DiscCount = pDiscCount
+            End If
+        End If
+    End If
+End Function
+Function BlockHolder() As Range
+    Set BlockHolder = Range("BlockHolder")
+End Function
+Function BlockRow(i As Integer) As Range
+    Dim R1 As Range: Set R1 = Cells(BlockHolder.Row + i - 1, BlockHolder.Column)
+    Dim R2 As Range: Set R2 = Cells(BlockHolder.Row + i - 1, BlockHolder.Column + BlockHolder.Columns.Count - 1)
+    Set BlockRow = Range(R1.Address & ":" & R2.Address)
+End Function
+Sub ResetGame(Optional LeaveTime As Boolean = False)
+    Dim i As Integer
+    Application.ScreenUpdating = False
+    For i = 1 To MaxDiscCount
+        If Intersect(BlockRow(i), Range("Block" & i)) Is Nothing Then
+            MoveBlock i, Range("Section1"), BlockHolder.Row + i - 1
+        End If
+    Next i
+    For i = DiscCount To 1 Step -1
+        If i = DiscCount Then
+            MoveBlock i, Range("Section1")
+        Else
+            MoveBlock i, Range("Section1"), Range("Block" & i + 1).Row - 1
+        End If
+    Next i
+    Moves = 0
+    Finished = False
+    StartedTimer = False
+    If Not LeaveTime Then
+        lblMoves.Caption = "Moves: " & 0
+        lblTime.Caption = "Time: 0:00"
+    End If
+    lblSolution.Caption = "Best Solution: " & WorksheetFunction.Power(2, DiscCount) - 1
+    Application.EnableEvents = False
+    Range("Block1").Select
+    Application.EnableEvents = True
+    SelectedSection = 1
+    SelectedBlock = 1
+    AllGray
+    HideColumns
+    Application.ScreenUpdating = True
+    txtMove.Activate
+End Sub
+
+Private Sub btnAdd_Click()
+    If DiscCount < MaxDiscCount Then
+        pDiscCount = DiscCount + 1
+        lblDiscs.Caption = "Discs: " & pDiscCount
+        ResetGame
+    End If
+End Sub
+
+Private Sub btnRemove_Click()
+    If DiscCount > 2 Then
+        pDiscCount = DiscCount - 1
+        lblDiscs.Caption = "Discs: " & pDiscCount
+        ResetGame
+    End If
+End Sub
+
+Private Sub btnReset_Click()
+    If MsgBox("Start over?", vbQuestion + vbYesNo, "Reset?") = vbNo Then Exit Sub
+    ResetGame
+End Sub
+Private Sub txtMove_Change()
+    Dim BlockFrom As Integer
+    If Len(txtMove.Text) = 1 And IsNumeric(txtMove.Text) Then
+        If Val(txtMove.Text) > 0 And Val(txtMove.Text) <= DiscCount Then
+            If FirstBlock(Range("Section" & txtMove.Text), BlockFrom) Then
+                If Not LastRedBlock Is Nothing Then ColorGray LastRedBlock
+                Set LastRedBlock = Range("Block" & BlockFrom)
+                ColorRed LastRedBlock
+                Exit Sub
+            End If
+        Else
+            If txtMove.Text = "0" Then btnReset_Click
+        End If
+    End If
+    If Len(txtMove.Text) <> 2 Then Exit Sub
+    If Not IsNumeric(Left(txtMove.Text, 1)) Or Not IsNumeric(Right(txtMove.Text, 1)) Then GoTo Fail
+    Dim iFrom As Integer: iFrom = Left(txtMove.Text, 1)
+    Dim iTo As Integer: iTo = Right(txtMove.Text, 1)
+    If iFrom = iTo And iFrom >= 1 And iFrom <= 3 Then
+        If FirstBlock(Range("Section" & iTo), BlockFrom) Then
+            ColorGray Range("Block" & BlockFrom)
+        End If
+    End If
+    If iFrom < 1 Or iFrom > 3 Or iTo < 1 Or iTo > 3 Or iFrom = iTo Then GoTo Fail
+    Dim SectionFrom As Range: Set SectionFrom = Range("Section" & iFrom)
+    If FirstBlock(SectionFrom, BlockFrom) Then
+        Dim BlockTo As Integer
+        Dim SectionTo As Range: Set SectionTo = Range("Section" & iTo)
+        If FirstBlock(SectionTo, BlockTo) Then
+            'block exists - check #
+            If BlockFrom < BlockTo Then
+                'good to go
+                MoveBlock BlockFrom, SectionTo, Range("Block" & BlockTo).Row - 1
+                If GameWon Then GoTo Won
+            End If
+        Else
+            'no block - good to go
+            If StartedTimer = False Then
+                StartedTimer = True
+                WhenStarted = Timer
+            End If
+            MoveBlock BlockFrom, SectionTo
+            If GameWon Then GoTo Won
+        End If
+    End If
+Fail:
+    txtMove.Text = ""
+    Exit Sub
+Won:
+    txtMove.Text = ""
+    Finished = True
+    For i = 1 To 5: DoEvents: Next 'The moves label wasn't updating before the msgbox >:(
+    MsgBox "It took you " & Moves & " moves in " & lblTime.Caption, vbInformation, "Game Won"
+    ResetGame True
+End Sub
+
+Private Sub txtMove_GotFocus()
+    txtMove.Text = ""
+End Sub
+Private Sub Worksheet_SelectionChange(ByVal Target As Range)
+    If Finished Then Exit Sub
+    Dim Section As Range
+    Dim i As Integer
+    For i = 1 To 3
+        If Not Intersect(Target, Range("Section" & i)) Is Nothing Then
+            Set Section = Range("Section" & i)
+            Exit For
+        End If
+    Next i
+    
+    If Section Is Nothing Then Exit Sub
+    
+    If SelectedSection = 0 Then
+        SelectedSection = i
+    Else
+        If SelectedSection = i Then
+            If Not LastRedBlock Is Nothing Then ColorGray LastRedBlock
+            SelectedSection = 0
+            SelectedBlock = 0
+            Exit Sub
+        End If
+    End If
+    
+    Dim Block As Integer
+    Dim C As Integer
+    If SelectedBlock = 0 Then
+        If FirstBlock(Section, Block) Then
+            SelectedBlock = Block
+            Application.EnableEvents = False
+            Range("Block" & Block).Select
+            
+            If Not LastRedBlock Is Nothing Then ColorGray LastRedBlock
+            Set LastRedBlock = Range("Block" & Block)
+            ColorRed LastRedBlock
+            
+            Application.EnableEvents = True
+            If StartedTimer = False Then
+                StartedTimer = True
+                WhenStarted = Timer
+            End If
+        Else
+            SelectedSection = 0
+        End If
+    Else
+        If FirstBlock(Section, Block) Then
+            'found a block, ensure selectedblock < block
+            If Block < SelectedBlock Then
+                Application.EnableEvents = False
+                Range("Block" & SelectedBlock).Select
+                Application.EnableEvents = True
+                Exit Sub
+            Else
+                'need to stack on top of another block
+                MoveBlock SelectedBlock, Section, Range("Block" & Block).Row - 1
+                If GameWon Then GoTo Won
+            End If
+        Else
+            'didnt find a block, empty section, valid move
+            If StartedTimer = False Then
+                StartedTimer = True
+                WhenStarted = Timer
+            End If
+            MoveBlock SelectedBlock, Section
+            If GameWon Then GoTo Won
+        End If
+    End If
+    Exit Sub
+Won:
+    Finished = True
+    MsgBox "It took you " & Moves & " moves in " & lblTime.Caption, vbInformation, "Game Won"
+    ResetGame True
+End Sub
+Sub MoveBlock(Block As Integer, Section As Range, Optional ByVal TheRow As Integer = 0)
+        If TheRow = 0 Then TheRow = Range("Platform").Row - 1
+        Dim BlockRange As Range: Set BlockRange = Range("Block" & Block).MergeArea
+        BlockRange.Cut
+        C = Section.Column
+        C = C + WorksheetFunction.RoundDown(Section.Columns.Count / 2, 0)
+        C = C - (BlockRange.Columns.Count - WorksheetFunction.RoundUp(BlockRange.Columns.Count / 2, 0))
+        Application.EnableEvents = False
+        ActiveSheet.Paste Cells(TheRow, C)
+        ColorGray Range("Block" & Block)
+        Application.EnableEvents = True
+        Application.CutCopyMode = False
+        SelectedBlock = 0
+        SelectedSection = 0
+        If Not Finished Then
+            Moves = Moves + 1
+            lblMoves.Caption = "Moves: " & Moves
+            Dim Seconds As Single: Seconds = Timer - WhenStarted
+            If Seconds >= 60 Then
+                lblTime.Caption = "Time: " & WorksheetFunction.RoundDown(Seconds / 60, 0) & ":" & Format(Seconds Mod 60, "00")
+            Else
+                lblTime.Caption = "Time: 0:" & Format(Seconds, "00")
+            End If
+        End If
+End Sub
+Function GameWon() As Boolean
+    Dim i As Integer
+    For i = 1 To DiscCount
+        If Intersect(Range("Block" & i), Range("Section3")) Is Nothing Then Exit Function
+    Next i
+    GameWon = True
+End Function
+Function FirstBlock(Section As Range, ByRef Block As Integer) As Boolean
+    Dim i As Integer
+    For i = 1 To DiscCount
+        If Not Intersect(Section, Range("Block" & i)) Is Nothing Then
+            Block = i
+            FirstBlock = True
+            Exit Function
+        End If
+    Next i
+    Block = 0
+End Function
+Sub ColorRed(R As Range)
+    If Val(Application.Version) < 12 Then
+        R.Interior.ColorIndex = 53
+        Exit Sub
+    End If
+    With R.Interior
+        .Pattern = xlPatternRectangularGradient
+        .Gradient.RectangleLeft = 0.5
+        .Gradient.RectangleRight = 0.5
+        .Gradient.RectangleTop = 0.5
+        .Gradient.RectangleBottom = 0.5
+        .Gradient.ColorStops.Clear
+    End With
+    With R.Interior.Gradient.ColorStops.Add(0)
+        .ThemeColor = xlThemeColorDark1
+        .TintAndShade = -0.149021881771294
+    End With
+    With R.Interior.Gradient.ColorStops.Add(1)
+        .ThemeColor = xlThemeColorAccent2
+        .TintAndShade = -0.498031556138798
+    End With
+End Sub
+Sub ColorGray(R As Range)
+    If Val(Application.Version) < 12 Then
+        R.Interior.ColorIndex = 15
+        Exit Sub
+    End If
+    With R.Interior
+        .Pattern = xlPatternRectangularGradient
+        .Gradient.RectangleLeft = 0.5
+        .Gradient.RectangleRight = 0.5
+        .Gradient.RectangleTop = 0.5
+        .Gradient.RectangleBottom = 0.5
+        .Gradient.ColorStops.Clear
+    End With
+    With R.Interior.Gradient.ColorStops.Add(0)
+        .ThemeColor = xlThemeColorDark1
+        .TintAndShade = -0.149021881771294
+    End With
+    With R.Interior.Gradient.ColorStops.Add(1)
+        .ThemeColor = xlThemeColorDark1
+        .TintAndShade = -0.498031556138798
+    End With
+End Sub
+Sub AllGray(Optional Arg As Integer = 0)
+    Dim i As Integer
+    For i = 1 To DiscCount
+        ColorGray Range("Block" & i)
+    Next i
+End Sub
+Sub HideColumns(Optional Arg As Integer = 0)
+    Dim i As Integer
+    Dim C As Integer
+    Dim Section As Range
+    Dim EndColumn As Integer
+    For i = 1 To 3
+        Set Section = Range("Section" & i)
+        Section.Columns.EntireColumn.Hidden = False
+        If DiscCount < MaxDiscCount Then
+            For C = Section.Column To Section.Column + ((MaxDiscCount - 1) - DiscCount)
+                Columns(C).EntireColumn.Hidden = True
+            Next C
+            EndColumn = Section.Column + Section.Columns.Count - 1
+            For C = EndColumn - ((MaxDiscCount - 1) - DiscCount) To EndColumn
+                Columns(C).EntireColumn.Hidden = True
+            Next C
+        End If
+    Next i
+End Sub
